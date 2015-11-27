@@ -33,14 +33,18 @@ import java.util.*;
 %token LESS_EQUAL   GREATER_EQUAL  EQUAL   NOT_EQUAL
 %token '+'  '-'  '*'  '/'  '%'  '='  '>'  '<'  '.'
 %token ','  ';'  '!'  '('  ')'  '['  ']'  '{'  '}'
+%token INC DEC NUMINSTANCES GUARDSEP FI OD DO
+%token '?' ':' 
 
+%right '?' ':'
 %left OR
 %left AND 
 %nonassoc EQUAL NOT_EQUAL
 %nonassoc LESS_EQUAL GREATER_EQUAL '<' '>'
 %left  '+' '-'
 %left  '*' '/' '%'  
-%nonassoc UMINUS '!' 
+%nonassoc UMINUS '!'
+%nonassoc DEC INC
 %nonassoc '[' '.' 
 %nonassoc ')' EMPTY
 %nonassoc ELSE
@@ -195,8 +199,39 @@ Stmt		    :	VariableDef
                 |	PrintStmt ';'
                 |	BreakStmt ';'
                 |	StmtBlock
+                |   GuardedIfStmt  
+                |   GuardedDoStmt              
                 ;
 
+GuardedIfStmt   :   IF GuardedStmtList FI
+                    {
+                        $$.stmt = new Tree.GuardIf($2.glist, $1.loc); 
+                    }   
+                ;
+
+GuardedDoStmt   :   DO GuardedStmtList OD
+                    {
+                        $$.stmt = new Tree.GuardDo($2.glist, $1.loc); 
+                    }   
+                ;
+
+GuardedStmtList :   GuardedStmtList GUARDSEP GuardedStmt
+                    {
+                        $$.glist.add($3.guard);
+                    }
+                |   GuardedStmt
+                    {
+                        $$.glist = new ArrayList<Tree.Guard>();
+                        $$.glist.add($1.guard);
+                    }
+                ;
+
+GuardedStmt     :   Expr ':' Stmt
+                    {
+                        $$.guard = new Tree.Guard($1.expr, $3.stmt, $2.loc);
+                    } 
+                ;              
+                    
 SimpleStmt      :	LValue '=' Expr
 					{
 						$$.stmt = new Tree.Assign($1.lvalue, $3.expr, $2.loc);
@@ -234,18 +269,42 @@ LValue          :	Receiver IDENTIFIER
 Call            :	Receiver IDENTIFIER '(' Actuals ')'
 					{
 						$$.expr = new Tree.CallExpr($1.expr, $2.ident, $4.elist, $2.loc);
-						if ($1.loc == null) {
+						if ($1.loc == null){ 
 							$$.loc = $2.loc;
 						}
 					}
                 ;
 
-Expr            :	LValue
+Expr            :	LValue INC
+                    {
+                        $$.expr = new Tree.SelfOp(Tree.POSTINC, $1.lvalue, $1.loc);   
+                    }
+                |   INC LValue
+                    {
+                        $$.expr = new Tree.SelfOp(Tree.PREINC, $2.lvalue, $2.loc);    
+                    }
+                |   DEC LValue
+                    {
+                        $$.expr = new Tree.SelfOp(Tree.PREDEC, $2.lvalue, $2.loc);       
+                    }
+                |   LValue DEC
+                    {
+                        $$.expr = new Tree.SelfOp(Tree.POSTDEC, $1.lvalue, $1.loc);   
+                    }
+                |   LValue
 					{
 						$$.expr = $1.lvalue;
 					}
                 |	Call
                 |	Constant
+                |   NUMINSTANCES '(' IDENTIFIER ')'
+                    {
+                        $$.expr = new Tree.TypeNum(Tree.NUMINSTANCES, $3.ident, $1.loc);
+                    }
+                |   Expr '?' Expr ':' Expr
+                    {
+                        $$.expr = new Tree.Ternary(Tree.COND, $1.expr, $3.expr, $5.expr, $1.loc);
+                    }
                 |	Expr '+' Expr
                 	{
                 		$$.expr = new Tree.Binary(Tree.PLUS, $1.expr, $3.expr, $2.loc);

@@ -4,9 +4,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Stack;
 
+import com.sun.management.jmx.TraceNotification;
+
 import decaf.Driver;
 import decaf.Location;
 import decaf.tree.Tree;
+import decaf.tree.Tree.Guard;
 import decaf.error.BadArgCountError;
 import decaf.error.BadArgTypeError;
 import decaf.error.BadArrElementError;
@@ -22,6 +25,7 @@ import decaf.error.DecafError;
 import decaf.error.FieldNotAccessError;
 import decaf.error.FieldNotFoundError;
 import decaf.error.IncompatBinOpError;
+import decaf.error.IncompatConOpError;
 import decaf.error.IncompatUnOpError;
 import decaf.error.NotArrayError;
 import decaf.error.NotClassError;
@@ -29,6 +33,7 @@ import decaf.error.NotClassFieldError;
 import decaf.error.NotClassMethodError;
 import decaf.error.RefNonStaticError;
 import decaf.error.SubNotIntError;
+import decaf.error.TestTypeError;
 import decaf.error.ThisInStaticFuncError;
 import decaf.error.UndeclVarError;
 import decaf.frontend.Parser;
@@ -59,12 +64,97 @@ public class TypeCheck extends Tree.Visitor {
 	public static void checkType(Tree.TopLevel tree) {
 		new TypeCheck(Driver.getDriver().getTable()).visitTopLevel(tree);
 	}
-
+	/**
+	 * new included operator visit method 
+	 */
+	//++ and --
+	@Override
+	public void visitSelfOp(Tree.SelfOp expr) {
+		expr.expr.accept(this);
+		if(expr.tag == Tree.PREINC || expr.tag == Tree.POSTINC){
+			if (expr.expr.type.equal(BaseType.ERROR)
+					|| expr.expr.type.equal(BaseType.INT)) {
+				expr.type = expr.expr.type;
+			} else {
+				issueError(new IncompatUnOpError(expr.getLocation(), "++",
+						expr.expr.type.toString()));
+				expr.type = BaseType.ERROR;
+			}
+		}
+		else{
+			if (expr.expr.type.equal(BaseType.ERROR)
+					|| expr.expr.type.equal(BaseType.INT)) {
+				expr.type = expr.expr.type;
+			} else {
+				issueError(new IncompatUnOpError(expr.getLocation(), "--",
+						expr.expr.type.toString()));
+				expr.type = BaseType.ERROR;
+			}
+		}
+	}
+	//A?B:C
+	@Override
+	public void visitTernary(Tree.Ternary ternary) {
+		ternary.first.accept(this);
+		if (!ternary.first.type.equal(BaseType.BOOL) &&
+				!ternary.first.type.equal(BaseType.ERROR)){
+			issueError(new TestTypeError(ternary.first.loc));
+			ternary.type = BaseType.ERROR;
+		}
+		ternary.left.accept(this);
+		ternary.right.accept(this);
+		if (!ternary.left.type.equal(ternary.right.type)){
+			issueError(new IncompatConOpError(ternary.loc,
+					ternary.left.type.toString(), 
+					ternary.right.type.toString()));
+			ternary.type = BaseType.ERROR;
+		}
+		else ternary.type = ternary.left.type;
+	}
+	
+	//numinstances
+	@Override
+	public void visitTypeNum(Tree.TypeNum expr) {
+		Symbol sym = table.lookup(expr.className, true);
+		if (sym == null || !sym.isClass()){
+			issueError(new ClassNotFoundError(expr.loc, expr.className));
+			expr.type = BaseType.ERROR;
+		}
+		else expr.type = BaseType.INT;			
+	}
+	
+	//guardifstat
+	@Override
+	public void visitGuardIf(Tree.GuardIf expr) {
+		for (Guard guard : expr.guards)
+			guard.accept(this);
+	}
+	
+	//guarddostat
+	@Override 
+	public void visitGuardDo(Tree.GuardDo expr) {		
+		breaks.add(expr);
+		for (Guard guard : expr.guards)
+			guard.accept(this);
+	}
+	
+	//guard list
+	@Override
+	public void visitGuard(Tree.Guard expr) {
+		checkTestExpr(expr.boolExpr);
+		expr.body.accept(this);
+	}
+	
+	
+	
+	/*-----------------------------------*/
+	
+	//Binary Operator
 	@Override
 	public void visitBinary(Tree.Binary expr) {
 		expr.type = checkBinaryOp(expr.left, expr.right, expr.tag, expr.loc);
 	}
-
+	//Unary Operator
 	@Override
 	public void visitUnary(Tree.Unary expr) {
 		expr.expr.accept(this);
@@ -87,7 +177,7 @@ public class TypeCheck extends Tree.Visitor {
 			expr.type = BaseType.BOOL;
 		}
 	}
-
+	//Base Type literal
 	@Override
 	public void visitLiteral(Tree.Literal literal) {
 		switch (literal.typeTag) {
@@ -102,7 +192,7 @@ public class TypeCheck extends Tree.Visitor {
 			break;
 		}
 	}
-
+	
 	@Override
 	public void visitNull(Tree.Null nullExpr) {
 		nullExpr.type = BaseType.NULL;
@@ -321,13 +411,14 @@ public class TypeCheck extends Tree.Visitor {
 			cast.type = c.getType();
 		}
 	}
-
+	//Visit the Identifier
 	@Override
 	public void visitIdent(Tree.Ident ident) {
 		if (ident.owner == null) {
 			Symbol v = table.lookupBeforeLocation(ident.name, ident
 					.getLocation());
 			if (v == null) {
+				//ident not declared
 				issueError(new UndeclVarError(ident.getLocation(), ident.name));
 				ident.type = BaseType.ERROR;
 			} else if (v.isVariable()) {
@@ -339,6 +430,7 @@ public class TypeCheck extends Tree.Visitor {
 				} else if (var.isParam()) {
 					ident.lvKind = Tree.LValue.Kind.PARAM_VAR;
 				} else {
+					//member var
 					if (currentFunction.isStatik()) {
 						issueError(new RefNonStaticError(ident.getLocation(),
 								currentFunction.getName(), ident.name));
@@ -571,11 +663,11 @@ public class TypeCheck extends Tree.Visitor {
 			typeArray.type = new ArrayType(typeArray.elementType.type);
 		}
 	}
-
+	//report check error
 	private void issueError(DecafError error) {
 		Driver.getDriver().issueError(error);
 	}
-
+	//Binary Operation checking
 	private Type checkBinaryOp(Tree.Expr left, Tree.Expr right, int op, Location location) {
 		left.accept(this);
 		right.accept(this);

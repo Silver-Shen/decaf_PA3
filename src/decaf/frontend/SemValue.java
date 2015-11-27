@@ -12,6 +12,7 @@ import decaf.tree.Tree.TopLevel;
 import decaf.tree.Tree.VarDef;
 import decaf.tree.Tree.TypeLiteral;
 import decaf.utils.MiscUtils;
+import decaf.tree.Tree.Guard;
 
 public class SemValue {
 
@@ -34,7 +35,12 @@ public class SemValue {
 
 	public List<VarDef> vlist;
 
-
+	/**
+	 * guard list
+	 */
+	public List<Guard> glist;
+	public Guard guard;
+	
 	/**
 	 * statement list
 	 */

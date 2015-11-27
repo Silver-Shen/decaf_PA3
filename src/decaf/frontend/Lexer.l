@@ -37,7 +37,7 @@ HEX_INTEGER			= (0[Xx]{HEX_DIGIT}+)
 DEC_INTEGER			= ({DIGIT}+)
 INTEGER				= ({HEX_INTEGER}|{DEC_INTEGER})
 IDENTIFIER			= ([A-Za-z][_0-9A-Za-z]*)
-SIMPLE_OPERATOR		= ("+"|"-"|"*"|"/"|"%"|"="|"<"|">"|"."|","|";"|"!"|"("|")"|"["|"]"|"{"|"}")
+SIMPLE_OPERATOR		= ("+"|"-"|"*"|"/"|"%"|"="|"<"|">"|"."|","|";"|"!"|"("|")"|"["|"]"|"{"|"}"|"?"|":")
 S_COMMENT			= ("//"[^\r\n]*{NEWLINE})
 WHITESPACE			= ([ \t]+)
 
@@ -81,6 +81,13 @@ WHITESPACE			= ([ \t]+)
 "&&"				{ return operator(Parser.AND);			}
 "||"				{ return operator(Parser.OR);			}
 {SIMPLE_OPERATOR}	{ return operator((int)yycharat(0));	}
+"++"				{ return operator(Parser.INC);			}
+"--"				{ return operator(Parser.DEC);			}
+"numinstances"      { return operator(Parser.NUMINSTANCES);	}
+"|||"  				{ return operator(Parser.GUARDSEP);		}
+"fi"				{ return operator(Parser.FI);			}
+"od"				{ return operator(Parser.OD);			}
+"do"				{ return operator(Parser.DO);			}
 
 	// 识别常数的规则
 "true"				{ return boolConst(true);										}

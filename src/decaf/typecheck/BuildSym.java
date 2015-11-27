@@ -4,6 +4,7 @@ import java.util.Iterator;
 
 import decaf.Driver;
 import decaf.tree.Tree;
+import decaf.tree.Tree.Guard;
 import decaf.error.BadArrElementError;
 import decaf.error.BadInheritanceError;
 import decaf.error.BadOverrideError;
@@ -43,36 +44,48 @@ public class BuildSym extends Tree.Visitor {
 	// root
 	@Override
 	public void visitTopLevel(Tree.TopLevel program) {
+		//initialize the program global scope
 		program.globalScope = new GlobalScope();
+		
+		//As the bottom element of scopeStack
 		table.open(program.globalScope);
+		
+		//Add the outer class to global scope 
 		for (Tree.ClassDef cd : program.classes) {
 			Class c = new Class(cd.name, cd.parent, cd.getLocation());
 			Class earlier = table.lookupClass(cd.name);
 			if (earlier != null) {
+				//issue the multiple declaration
 				issueError(new DeclConflictError(cd.getLocation(), cd.name,
 						earlier.getLocation()));
 			} else {
 				table.declare(c);
 			}
+			
+			//establish a symbol for the class 
 			cd.symbol = c;
 		}
 
 		for (Tree.ClassDef cd : program.classes) {
 			Class c = cd.symbol;
 			if (cd.parent != null && c.getParent() == null) {
+				//issue the parent class absence
 				issueError(new ClassNotFoundError(cd.getLocation(), cd.parent));
 				c.dettachParent();
 			}
 			if (calcOrder(c) <= calcOrder(c.getParent())) {
+				//issue the error if the inheritance tree has a loop
 				issueError(new BadInheritanceError(cd.getLocation()));
 				c.dettachParent();
 			}
 		}
-
+		
+		//create class description
 		for (Tree.ClassDef cd : program.classes) {
 			cd.symbol.createType();
 		}
-
+		
+		//visit all the class to establish secondary symbol table
 		for (Tree.ClassDef cd : program.classes) {
 			cd.accept(this);
 			if (Driver.getDriver().getOption().getMainClassName().equals(
@@ -80,11 +93,11 @@ public class BuildSym extends Tree.Visitor {
 				program.main = cd.symbol;
 			}
 		}
-
+		//see checkOverride
 		for (Tree.ClassDef cd : program.classes) {
 			checkOverride(cd.symbol);
 		}
-
+		//must have main class
 		if (!isMainClass(program.main)) {
 			issueError(new NoMainClassError(Driver.getDriver().getOption()
 					.getMainClassName()));
@@ -96,12 +109,13 @@ public class BuildSym extends Tree.Visitor {
 	@Override
 	public void visitClassDef(Tree.ClassDef classDef) {
 		table.open(classDef.symbol.getAssociatedScope());
+		//traverse the field list and visit them(var & func)
 		for (Tree f : classDef.fields) {
 			f.accept(this);
 		}
 		table.close();
 	}
-
+	//visit variable definition
 	@Override
 	public void visitVarDef(Tree.VarDef varDef) {
 		varDef.type.accept(this);
@@ -116,6 +130,7 @@ public class BuildSym extends Tree.Visitor {
 				varDef.getLocation());
 		Symbol sym = table.lookup(varDef.name, true);
 		if (sym != null) {
+			//multiple declaration
 			if (table.getCurrentScope().equals(sym.getScope())) {
 				issueError(new DeclConflictError(v.getLocation(), v.getName(),
 						sym.getLocation()));
@@ -131,7 +146,7 @@ public class BuildSym extends Tree.Visitor {
 		}
 		varDef.symbol = v;
 	}
-
+	//visit function definition
 	@Override
 	public void visitMethodDef(Tree.MethodDef funcDef) {
 		funcDef.returnType.accept(this);
@@ -232,7 +247,36 @@ public class BuildSym extends Tree.Visitor {
 			whileLoop.loopBody.accept(this);
 		}
 	}
+	
+	/**
+	 * new included function
+	 */
+	//guardifstat
+	@Override
+	public void visitGuardIf(Tree.GuardIf expr) {
+		for (Guard guard : expr.guards)
+			guard.accept(this);
+	}
 
+	//guarddostat
+	@Override 
+	public void visitGuardDo(Tree.GuardDo expr) {
+		for (Guard guard : expr.guards)
+			guard.accept(this);
+	}
+
+	//guard list
+	@Override
+	public void visitGuard(Tree.Guard expr) {		
+		expr.body.accept(this);
+	}
+	
+	/**calculate the order of a class
+	*in this context,as we know decaf only support single inheritance
+	*inheritance relationship could be depicted as tree
+	*and the order could be interpreted as the depth of current class
+	*--by zyshen
+	*/
 	private int calcOrder(Class c) {
 		if (c == null) {
 			return -1;
@@ -244,6 +288,15 @@ public class BuildSym extends Tree.Visitor {
 		return c.getOrder();
 	}
 
+	/**check the correctness of override
+	 * error case:
+	 * 1.var override func
+	 * 2.func override var
+	 * 3.static func cannot be override
+	 * 4.return type not compatible
+	 * 5.var cannnot be override
+	 * --by zyshen
+	 */
 	private void checkOverride(Class c) {
 		if (c.isCheck()) {
 			return;
@@ -261,7 +314,7 @@ public class BuildSym extends Tree.Visitor {
 		while (iter.hasNext()) {
 			Symbol suspect = iter.next();
 			Symbol sym = table.lookup(suspect.getName(), true);
-			if (sym != null && !sym.isClass()) {
+			if (sym != null && !sym.isClass()) {				
 				if ((suspect.isVariable() && sym.isFunction())
 						|| (suspect.isFunction() && sym.isVariable())) {
 					issueError(new DeclConflictError(suspect.getLocation(),
@@ -290,7 +343,7 @@ public class BuildSym extends Tree.Visitor {
 		table.close();
 		c.setCheck(true);
 	}
-
+	//Main class must have a main function 
 	private boolean isMainClass(Class c) {
 		if (c == null) {
 			return false;
