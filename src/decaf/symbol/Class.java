@@ -10,6 +10,7 @@ import decaf.scope.GlobalScope;
 import decaf.tac.Label;
 import decaf.tac.VTable;
 import decaf.type.ClassType;
+import decaf.tac.Temp;
 
 public class Class extends Symbol {
 
@@ -31,6 +32,9 @@ public class Class extends Symbol {
 
 	private Label newFuncLabel;
 
+	//for numinstances
+	public Temp numInstances;
+	
 	public Label getNewFuncLabel() {
 		return newFuncLabel;
 	}

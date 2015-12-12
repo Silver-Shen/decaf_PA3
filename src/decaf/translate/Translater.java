@@ -344,6 +344,23 @@ public class Translater {
 		append(Tac.genParm(parm));
 	}
 
+	/**
+	 * check division by zero error
+	 * @param divider
+	 */
+	public void genCheckDivider(Temp divider) {
+		Label err = Label.createLabel();
+		Label exit = Label.createLabel();
+		genBeqz(divider, err);		
+		genBranch(exit);
+		genMark(err);
+		Temp msg = genLoadStrConst(RuntimeError.DIVISION_BY_ZERO);
+		genParm(msg);
+		genIntrinsicCall(Intrinsic.PRINT_STRING);
+		genIntrinsicCall(Intrinsic.HALT);
+		genMark(exit);
+	}
+	
 	public void genCheckArrayIndex(Temp array, Temp index) {
 		Temp length = genLoad(array, -OffsetCounter.WORD_SIZE);
 		Temp cond = genLes(index, length);

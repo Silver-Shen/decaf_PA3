@@ -60,6 +60,8 @@ public class TransPass1 extends Tree.Visitor {
 		for (Variable v : vars) {
 			v.setOffset(oc.next(OffsetCounter.WORD_SIZE));
 		}
+		//initialize the class counter
+		classDef.symbol.numInstances = Temp.createTempI4();
 	}
 
 	@Override

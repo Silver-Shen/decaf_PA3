@@ -3,8 +3,10 @@ package decaf.translate;
 import java.util.Stack;
 
 import decaf.tree.Tree;
+import decaf.Driver;
 import decaf.backend.OffsetCounter;
 import decaf.machdesc.Intrinsic;
+import decaf.scope.ScopeStack;
 import decaf.symbol.Variable;
 import decaf.tac.Label;
 import decaf.tac.Temp;
@@ -58,6 +60,98 @@ public class TransPass2 extends Tree.Visitor {
 		}
 	}
 
+	/**
+	 * new included operation
+	 */
+	@Override
+	public void visitSelfOp(Tree.SelfOp expr) {
+		expr.expr.accept(this);
+		Temp constant = tr.genLoadImm4(1);
+		switch (expr.tag) {
+		case Tree.PREINC:{
+			expr.val = Temp.createTempI4();
+			Temp result = tr.genAdd(expr.expr.val, constant);
+			tr.genAssign(expr.expr.val, result);
+			tr.genAssign(expr.val, expr.expr.val);
+			break;}
+		case Tree.POSTINC:{
+			expr.val = Temp.createTempI4();
+			tr.genAssign(expr.val, expr.expr.val);
+			Temp result = tr.genAdd(expr.expr.val, constant);
+			tr.genAssign(expr.expr.val, result);
+			break;}
+		case Tree.PREDEC:{
+			expr.val = Temp.createTempI4();
+			Temp result = tr.genSub(expr.expr.val, constant);
+			tr.genAssign(expr.expr.val, result);
+			tr.genAssign(expr.val, expr.expr.val);
+			break;}			
+		case Tree.POSTDEC:{
+			expr.val = Temp.createTempI4();
+			tr.genAssign(expr.val, expr.expr.val);
+			Temp result = tr.genSub(expr.expr.val, constant);
+			tr.genAssign(expr.expr.val, result);
+			break;}
+		}
+	}
+	
+	@Override
+	public void visitTernary(Tree.Ternary expr) {
+		expr.val = Temp.createTempI4();
+		expr.first.accept(this);
+		Label falseLabel = Label.createLabel();
+		tr.genBeqz(expr.first.val, falseLabel);
+		expr.left.accept(this);
+		tr.genAssign(expr.val, expr.left.val);
+		Label exit = Label.createLabel();
+		tr.genBranch(exit);
+		tr.genMark(falseLabel);
+		expr.right.accept(this);
+		tr.genAssign(expr.val, expr.right.val);
+		tr.genMark(exit);
+	}
+	
+	@Override
+	public void visitTypeNum(Tree.TypeNum expr) {
+		decaf.symbol.Class symbol = Driver.getDriver().getTable().lookupClass(expr.className);
+		expr.val = Temp.createTempI4();
+		tr.genAssign(expr.val, symbol.numInstances);
+	}
+	
+	@Override
+	public void visitGuardIf(Tree.GuardIf expr) {
+		Label exit = Label.createLabel();
+		for (Tree.Guard stmt : expr.guards){
+			Label falseStmt = Label.createLabel();
+			stmt.boolExpr.accept(this);
+			tr.genBeqz(stmt.boolExpr.val, falseStmt);
+			stmt.body.accept(this);
+			tr.genBranch(exit);
+			tr.genMark(falseStmt);
+		}
+		tr.genMark(exit);
+	}
+	
+	@Override 
+	public void visitGuardDo(Tree.GuardDo expr) {
+		Label loop = Label.createLabel();
+		Label exit = Label.createLabel();
+		loopExits.push(exit);
+		tr.genMark(loop);
+		for (Tree.Guard stmt : expr.guards){
+			Label falseStmt = Label.createLabel();
+			stmt.boolExpr.accept(this);
+			tr.genBeqz(stmt.boolExpr.val, falseStmt);
+			stmt.body.accept(this);
+			tr.genBranch(loop);
+			tr.genMark(falseStmt);
+		}
+		loopExits.pop();
+		tr.genMark(exit);
+	}
+	//i'm separator =_=
+	//--------------------------------------------------------
+	
 	@Override
 	public void visitBinary(Tree.Binary expr) {
 		expr.left.accept(this);
@@ -69,13 +163,15 @@ public class TransPass2 extends Tree.Visitor {
 		case Tree.MINUS:
 			expr.val = tr.genSub(expr.left.val, expr.right.val);
 			break;
-		case Tree.MUL:
+		case Tree.MUL:			
 			expr.val = tr.genMul(expr.left.val, expr.right.val);
 			break;
 		case Tree.DIV:
+			tr.genCheckDivider(expr.right.val);
 			expr.val = tr.genDiv(expr.left.val, expr.right.val);
 			break;
 		case Tree.MOD:
+			tr.genCheckDivider(expr.right.val);
 			expr.val = tr.genMod(expr.left.val, expr.right.val);
 			break;
 		case Tree.AND:
@@ -353,6 +449,10 @@ public class TransPass2 extends Tree.Visitor {
 	public void visitNewClass(Tree.NewClass newClass) {
 		newClass.val = tr.genDirectCall(newClass.symbol.getNewFuncLabel(),
 				BaseType.INT);
+		//increase the number of class
+		Temp addtion = tr.genLoadImm4(1);
+		Temp newNum = tr.genAdd(addtion, newClass.symbol.numInstances);
+		tr.genAssign(newClass.symbol.numInstances, newNum);
 	}
 
 	@Override
